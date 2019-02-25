@@ -32,7 +32,7 @@ else:
 
 #Keep looking until quiting
 while True:
-  if count == 0:
+  if count <= 50:
 	#Grabs the current frame that is being used
 	frame = vs.read()
 	#If the frame is not successfuly read, break from the loop
@@ -71,13 +71,17 @@ while True:
 	    #Output x and y coordinates
 	    #print(int(x), int(y))
 	    print(centroids)
+	
+	cv2.putText(frame, 'CALIBRATING IS ACTIVE', (10,750), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+	
 
 	#If q is pressed, the video stream stops
 	if cv2.waitKey(1) == ord("q"):
 	  break
 
 	#Shows the current frame to the screen
-	cv2.imshow("Live Video", frame)    
+	cv2.imshow("Live Video", frame)
+	count = count + 1    
 
 
   else:	
