@@ -17,6 +17,8 @@ g_lower_color = (45, 100, 50)
 x_array = []
 y_array = []
 
+centroids = []
+
 #counter for green mask
 count = 0
 
@@ -32,7 +34,7 @@ else:
 
 #Keep looking until quiting
 while True:
-  if count <= 50:
+  if count <= 10:
 	#Grabs the current frame that is being used
 	frame = vs.read()
 	#If the frame is not successfuly read, break from the loop
@@ -61,7 +63,6 @@ while True:
 	#if statement to find an existing contour
 	if len(contours) > 0:
 	  #Calculates the centroid of the max contour
-	  centroids = []
 	  for i in range(len(contours)):
 	    moments = cv2.moments(contours[i])
 	    centroids.append((int(moments['m10']/moments['m00']), int(moments['m01']/moments['m00'])))
@@ -72,17 +73,21 @@ while True:
 	    #print(int(x), int(y))
 	    print(centroids)
 	
-	cv2.putText(frame, 'CALIBRATING IS ACTIVE', (10,750), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+	cv2.putText(frame, 'CALIBRATING IS ACTIVE, PLEASE WAIT...', (10,750), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
 	
 
 	#If q is pressed, the video stream stops
 	if cv2.waitKey(1) == ord("q"):
 	  break
 
+	count = count + 1    
+	
+	if len(centroids) != 4:
+	  count = count - 1
+	  centroids[:] = []
+	  
 	#Shows the current frame to the screen
 	cv2.imshow("Live Video", frame)
-	count = count + 1    
-
 
   else:	
 	#Starts the timer (used for fps calc)
