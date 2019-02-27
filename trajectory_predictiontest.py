@@ -113,10 +113,12 @@ while True:
         cv2.putText(frame,str("%.2f"%angle2),borderpts[1],cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
         if (85 <= angle1 <= 95) and (85 <= angle2 <= 95):
-            minX = max(borderpts[0][0],borderpts[2][0])
-            maxX = min(borderpts[1][0],borderpts[3][0])
             minY = max(borderpts[0][1],borderpts[1][1])
             maxY = min(borderpts[2][1],borderpts[3][1])
+            borderpts.sort()
+            minX = max(borderpts[0][0],borderpts[1][0])
+            maxX = min(borderpts[2][0],borderpts[3][0])
+
             print("minX, maxX", minX, maxX)
             print("minY, maxY", minY, maxY)
             for x in range(len(borderpts)):
@@ -202,8 +204,8 @@ while True:
                 y1 = trajQ[1][1]
                 line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2))
                 theta = math.atan2((y2-y1),x2-x1)
-                x3 = x1 + line_len * 10 * math.cos(theta)
-                y3 = y1 + line_len * 10 * math.sin(theta)
+                x3 = x1 + line_len * 200 * math.cos(theta)
+                y3 = y1 + line_len * 200 * math.sin(theta)
                 cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
 
     # show the frame to our screen
