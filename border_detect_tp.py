@@ -12,6 +12,8 @@ import imutils
 import time
 import math
 import serial
+from border_calibration import calibrate
+#import border_calibration as bcal
 
 #calculate degrees of angle between 3 points, with p1 as vertex
 def angle(p1,p2,p3):
@@ -61,8 +63,21 @@ def translate(value, leftMin, leftMax, rightMin, rightMax):
     # Convert the 0-1 range into a value in the right range.
     return rightMin + (valueScaled * rightSpan)
 
+#check if all elements in a list are the same
+# http://stackoverflow.com/q/3844948/
+def checkEqual(lst):
+    return not lst or lst.count(lst[0]) == len(lst)
+
 #start serial connection with arduino
 ser = serial.Serial('/dev/cu.usbmodem1411',9600)
+
+
+(step0y, step2100y) = calibrate(ser)
+
+print("step0y: ", step0y, "step2100y: ", step2100y, "\n")
+
+
+
 
 # construct the argument parse and parse the arguments
 ap = argparse.ArgumentParser()
@@ -80,7 +95,8 @@ puckUpper = (172, 225, 255)
 pts = deque(maxlen=args["buffer"])
 borderpts = []
 minX = maxX = minY = maxY = 0
-trajQ = deque(maxlen=4)
+trajQ = deque(maxlen=4) #queue to store center coordinates to extrapolate trajectory line
+interceptQ = deque(maxlen=5) #queue to store predicted interctepts, used to control jitter
 topLeft = btmLeft = topRight = btmRight = (0,0)
 
 
@@ -89,8 +105,9 @@ vs = VideoStream(src=0).start()
 
 timeCount = timeStart = timeStop = elapsedTime = fps = 0
 pt0 = pt1 = pt2 = pt3 = 0
+ysteppuck = ystepstriker = None
 
-# keep looping
+# get the position of the four outside corners to define outside boundary of air hockey table
 while True:
     # grab the current frame
     frame = vs.read()
@@ -207,7 +224,6 @@ while True:
 while True:
     # grab the current frame
     frame = vs.read()
-
     #calculate fps
     if timeCount == 0:
         timeStart = time.time()
@@ -307,81 +323,96 @@ while True:
 
         #if the centroid in the current frame is within the boundary,
         #extrapolate trajectory
-        if (minX <= trajQ[0][0] <= maxX) and (minY <= trajQ[0][1] <= maxY):
+        #if (minX <= trajQ[0][0] <= maxX) and (minY <= trajQ[0][1] <= maxY):
 
-            # only proceed if the radius meets a minimum size
-            if radius > 10:
-                # draw the circle and centroid on the frame,
-                # then update the list of tracked points
-                cv2.circle(frame, (int(x), int(y)), int(radius),
-                	(0, 255, 255), 2)
-                cv2.circle(frame, center, 5, (0, 0, 255), -1)
-                cv2.putText(frame,str(center),center,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
+        # only proceed if the radius meets a minimum size
+        if radius > 10:
+            # draw the circle and centroid on the frame,
+            # then update the list of tracked points
+            cv2.circle(frame, (int(x), int(y)), int(radius),
+            	(0, 255, 255), 2)
+            cv2.circle(frame, center, 5, (0, 0, 255), -1)
+            cv2.putText(frame,str(center),center,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
-            #if there are two frames in the queue,
-            #display a line extrapolating the centroids in two consecutive frames
-            if len(trajQ) > 3:
-                x1 = trajQ[0][0]
-                y1 = trajQ[0][1]
-                x2 = trajQ[3][0]
-                y2 = trajQ[3][1]
-                line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2))
-                theta = math.atan2((y1-y2),(x1-x2))
+        #if there are two frames in the queue,
+        #display a line extrapolating the centroids in two consecutive frames
+        if len(trajQ) > 3:
+            x1 = trajQ[0][0]
+            y1 = trajQ[0][1]
+            x2 = trajQ[3][0]
+            y2 = trajQ[3][1]
+            line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2))
+            theta = math.atan2((y1-y2),(x1-x2))
 
-                #if the object is moving towards one end of the hockey table
-                if x1 < x2:
+            #if the object is moving towards one end of the hockey table
+            if x2 < x1:
 
-                    #loop until the predicted puck trajectory intersects the baseline
-                    while True:
-                        intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topLeft,btmLeft)
+                #loop until the predicted puck trajectory intersects the baseline
+                while True:
+                    intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topRight,btmRight)
 
-                        #if the the puck is headed toward the baseline
-                        #draw a line from the current centroid to the baseline, and break from the loop
-                        if intersectPoint != []:
-                            (x3,y3) = intersectPoint[0]
+                    #if the the puck is headed toward the baseline
+                    #draw a line from the current centroid to the baseline, and break from the loop
+                    if intersectPoint != []:
+                        (x3,y3) = intersectPoint[0]
 
-                            #map opencv coordinates to stepper coordinates
-                            #the input range are just test values for now based on coordinates of corners
-                            #we have to add a calibration switch to tell where the actual limits are
-                            ysteppuck = translate(int(y3),52,278,0,2100) #puck's predicted y coordinate
-                            ystepstriker = translate(int(centerGreen[1]),47,280,0,2100) #striker's current y coordinate
+                        #map opencv coordinates to stepper coordinates
+                        #the input range are just test values for now based on coordinates of corners
+                        #we have to add a calibration switch to tell where the actual limits are
+                        ysteppuck = translate(int(y3),step2100y,step0y, 0,2100) #puck's predicted y coordinate
 
-                            #just for test, serial ouput it every 9 frames
-                            #if timeCount == 9:
+                        cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+                        cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
 
-                            #change float to int, change int to string, append newline character, change string from unicode to 'byte'
-                            ystepstriker = str.encode(str(int(ystepstriker)) + "\r")
-                            ysteppuck = str.encode(str(int(ysteppuck)) + "\n")
-                            data = ystepstriker + ysteppuck
-                            ser.write(data) #write serial data
+                        break
 
-                            cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
-                            cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
+                    #if the puck headed towards one of the sidelines
+                    else:
+                        #if theta is negative, its heading towards the top sideline
+                        if theta < 0:
+                            intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topLeft,topRight)
+                            if intersectPoint != []:
+                                (x3,y3) = intersectPoint[0]
+                                cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
 
-                            break
-
-                        #if the puck headed towards one of the sidelines
+                                #set the current position equal to the end of the line and flip the angle
+                                (x1,y1) = (x3,y3)
+                                theta = -theta
+                        #if theta is positive, its heading towards the bottom sideline
                         else:
-                            #if theta is negative, its heading towards the top sideline
-                            if theta < 0:
-                                intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topLeft,topRight)
-                                if intersectPoint != []:
-                                    (x3,y3) = intersectPoint[0]
-                                    cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+                            intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),btmLeft,btmRight)
+                            if intersectPoint != []:
+                                (x3,y3) = intersectPoint[0]
+                                cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
 
-                                    #set the current position equal to the end of the line and flip the angle
-                                    (x1,y1) = (x3,y3)
-                                    theta = -theta
-                            #if theta is positive, its heading towards the bottom sideline
-                            else:
-                                intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),btmLeft,btmRight)
-                                if intersectPoint != []:
-                                    (x3,y3) = intersectPoint[0]
-                                    cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+                                #set the current position equal to the end of the line and flip the angle
+                                (x1,y1) = (x3,y3)
+                                theta = -theta
 
-                                    #set the current position equal to the end of the line and flip the angle
-                                    (x1,y1) = (x3,y3)
-                                    theta = -theta
+            try:
+                #map opencv coordinates to stepper coordinates
+                #the input range are just test values for now based on coordinates of corners
+                #we have to add a calibration switch to tell where the actual limits are
+                ystepstriker = translate(int(centerGreen[1]),step2100y,step0y,0,2100) #striker's current y coordinate
+                #change float to int, change int to string, append newline character, change string from unicode to 'byte'
+                ystepstriker = str.encode(str(int(ystepstriker)) + "\r")
+                #append a bunch of values to a queue and check if they're all the same
+                interceptQ.append(int(ysteppuck))
+                #if values in the queue are the same, the puck isn't currently moving towards the striker end of the table, and the striker will return to the middle of the table
+                if checkEqual(interceptQ):
+                    ysteppuck = str.encode(str(1050) + "\n")
+                #the puck is moving towards the striker, and output the intercept coordinate
+                else:
+                    ysteppuck = str.encode(str(int(ysteppuck)) + "\n")
+                #combine the data to send it to the arduino
+                data = ystepstriker + ysteppuck
+                #if the coordinates are not negative
+                if (int(ysteppuck) > 0) and (int(ystepstriker) > 0):
+                    print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
+                    #ser.write(data) #write serial data
+            except:
+                pass
+
 
 
     # show the frame to our screen
@@ -391,6 +422,8 @@ while True:
     # if the 'q' key is pressed, stop the loop
     if key == ord("q"):
         break
+
+
 
 #stop the camera video stream
 vs.stop()

@@ -3,6 +3,8 @@ String inputString = "";         // a String to hold incoming data
 String stkrCoord = "";
 String pckCoord = "";
 
+String printString = ""; //string to print back to serial terminal
+
 int goalPos = 1050;
 bool stringComplete = false;  // whether the string is complete
 bool retRead = false; //whether '\r' character has been read
@@ -10,7 +12,7 @@ bool retRead = false; //whether '\r' character has been read
 const int stepPin = 4; //define pins numbers
 const int dirPin = 3; 
 
-int currPos = 1050;
+int currPos = 1050; //current position of the striker
 int currDir = 0;
 
 void setup() {
@@ -30,8 +32,12 @@ void loop() {
 
   // print the string when a newline arrives:
   if (stringComplete) {
-    currPos = stkrCoord.toInt();
-    goalPos = pckCoord.toInt();
+    goalPos = stkrCoord.toInt();
+    currPos = pckCoord.toInt();
+
+    //print results to serial console
+    printString = "Goal: " + stkrCoord + "Current Pos: " + pckCoord;
+    Serial.println(printString);
 
     //reset strings and flags
     inputString = "";
