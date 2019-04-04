@@ -1,7 +1,3 @@
-#no green box in the beginning
-#predicts trajectory based on speed within confined of box
-
-
 # import the necessary packages
 from collections import deque
 from imutils.video import VideoStream
@@ -44,8 +40,16 @@ def lineRayIntersectionPoint(rayOrigin, rayDirection, point1, point2):
     v1 = rayOrigin - point1
     v2 = point2 - point1
     v3 = np.array([-rayDirection[1], rayDirection[0]])
-    t1 = np.cross(v2, v1) / np.dot(v2, v3)
+    #melissa added the v2_DOT_v3 and the if-else around the t1 and t2 calculations
+    #when causing the program to crash by sending the puck through the baseline border, this function call around line 360 was printed in the traceback in the terminal
+    #hypothesized the dot product was causing a division by zero
+    # CODE STILL NOT FIXED
+    v2_DOT_v3 = np.dot(v2, v3)
+    #if v2_DOT_v3 > 0:
+    t1 = np.cross(v2, v1) / v2_DOT_v3
     t2 = np.dot(v1, v3) / np.dot(v2, v3)
+    #lse:
+    #    print("puck isn't in the border")
     if t1 >= 0.0 and t2 >= 0.0 and t2 <= 1.0:
         return [rayOrigin + t1 * rayDirection]
     return []
@@ -69,10 +73,13 @@ def checkEqual(lst):
     return not lst or lst.count(lst[0]) == len(lst)
 
 #start serial connection with arduino
-ser = serial.Serial('/dev/cu.usbmodem1411',9600)
+ser = serial.Serial('/dev/cu.usbmodem4513840',9600)
 
 
-(step0y, step2100y) = calibrate(ser)
+#(step2100y, step0y) = calibrate(ser)
+step0y = 123
+step2100y = 376
+
 
 print("step0y: ", step0y, "step2100y: ", step2100y, "\n")
 
@@ -86,12 +93,12 @@ ap.add_argument("-b", "--buffer", type=int, default=64,
 args = vars(ap.parse_args())
 
 # define the lower and upper boundaries of the green duct tape and the puck
-# ball in the HSV color space, then initialize the
+# all in the HSV color space, then initialize the
 # list of tracked points
-greenDuctLower = (47, 73, 0)
-greenDuctUpper = (70, 190, 255)
-puckLower = (163, 64, 84)
-puckUpper = (172, 225, 255)
+greenDuctLower = (47, 73, 0) #lower color range
+greenDuctUpper = (70, 190, 255) #upper boundary for color
+puckLower = (163, 64, 84) #lower boundary of color range of puck (fuschia)
+puckUpper = (172, 225, 255) #upper bound for puck color range
 pts = deque(maxlen=args["buffer"])
 borderpts = []
 minX = maxX = minY = maxY = 0
@@ -126,15 +133,15 @@ while True:
     mask = cv2.dilate(mask, None, iterations=2)
 
     # find contours in the mask and initialize the current
-    # (x, y) center of the ball
+    # (x, y) center of the green object
     cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
     	cv2.CHAIN_APPROX_SIMPLE)
 
     #this line to is to make this code work with multiple versions of opencv
-    cnts = imutils.grab_contours(cnts)
+    cnts = imutils.grab_contours(cnts) #grab contours
     center = None
 
-    # only proceed if at least one contour was found
+    # only proceed if there are at least 4 contours found
     if len(cnts) >= 4:
     	# sort contours to find largest contours
         cnts = sorted(cnts, key=cv2.contourArea)
@@ -156,7 +163,7 @@ while True:
             borderpts.append(center)
 
             # only proceed if the radius meets a minimum size
-            if radius > 10:
+            if radius > 10: #this is the striker
             	# draw the circle and centroid on the frame,
             	# then update the list of tracked points
             	cv2.circle(frame, (int(x), int(y)), int(radius),
@@ -177,10 +184,10 @@ while True:
         pt2 = rightpts[0] #top right coordinate
         pt3 = rightpts[1] #bottom right coordinate
 
-        angle1 = angle(pt1,pt0,pt3)
-        angle2 = angle(pt2,pt0,pt3)
+        angle1 = angle(pt1,pt0,pt3) #calculate angles between the border points
+        angle2 = angle(pt2,pt0,pt3) #first point listed is the vertex
 
-        cv2.line(frame, pt0, pt1, (0,0,255), 2)
+        cv2.line(frame, pt0, pt1, (0,0,255), 2) #create the red line between border points
         cv2.line(frame, pt1, pt3, (0,0,255), 2)
         cv2.line(frame, pt3, pt2, (0,0,255), 2)
         cv2.line(frame, pt2, pt0, (0,0,255), 2)
@@ -195,7 +202,7 @@ while True:
         cv2.putText(frame,"topRight",(pt2[0]-150,pt2[1]),cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
         cv2.putText(frame,"btmRight",(pt3[0]-150,pt3[1]),cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
-        if (85 <= angle1 <= 95) and (85 <= angle2 <= 95):
+        if (85 <= angle1 <= 95) and (85 <= angle2 <= 95): #make sure angles are roughly 90degrees making the the shape rectangular
             borderpts = sorted(borderpts, key= lambda k:k[1])
             minY = max(borderpts[0][1],borderpts[1][1])
             maxY = min(borderpts[2][1],borderpts[3][1])
@@ -205,7 +212,7 @@ while True:
 
             print("minX, maxX", minX, maxX)
             print("minY, maxY", minY, maxY)
-            topLeft = (minX,minY)
+            topLeft = (minX,minY) #lock in the coordinates
             btmLeft = (minX,maxY)
             topRight = (maxX,minY)
             btmRight = (maxX,maxY)
@@ -308,7 +315,7 @@ while True:
             cv2.putText(frame,str(centerGreen),centerGreen,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
 
-    # only proceed if at least one contour was found
+    # only proceed if at least one fuschia contour was found
     if len(cnts) > 0:
 
         #display the circle and centroid
@@ -325,22 +332,22 @@ while True:
         #extrapolate trajectory
         #if (minX <= trajQ[0][0] <= maxX) and (minY <= trajQ[0][1] <= maxY):
 
-        # only proceed if the radius meets a minimum size
-        if radius > 10:
-            # draw the circle and centroid on the frame,
-            # then update the list of tracked points
-            cv2.circle(frame, (int(x), int(y)), int(radius),
-            	(0, 255, 255), 2)
-            cv2.circle(frame, center, 5, (0, 0, 255), -1)
-            cv2.putText(frame,str(center),center,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
+        # only proceed if the radius of puck contour meets a minimum size
+        #if radius > 10:
+        # draw the circle and centroid on the frame,
+        # then update the list of tracked points
+        cv2.circle(frame, (int(x), int(y)), int(radius),
+        	(0, 255, 255), 2)
+        cv2.circle(frame, center, 5, (0, 0, 255), -1)
+        cv2.putText(frame,str(center),center,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
         #if there are two frames in the queue,
         #display a line extrapolating the centroids in two consecutive frames
         if len(trajQ) > 3:
             x1 = trajQ[0][0]
             y1 = trajQ[0][1]
-            x2 = trajQ[3][0]
-            y2 = trajQ[3][1]
+            x2 = trajQ[2][0]
+            y2 = trajQ[2][1]
             line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2))
             theta = math.atan2((y1-y2),(x1-x2))
 
@@ -359,7 +366,7 @@ while True:
                         #map opencv coordinates to stepper coordinates
                         #the input range are just test values for now based on coordinates of corners
                         #we have to add a calibration switch to tell where the actual limits are
-                        ysteppuck = translate(int(y3),step2100y,step0y, 0,2100) #puck's predicted y coordinate
+                        ysteppuck = translate(int(y3),step0y,step2100y, 0,2100) #puck's predicted y coordinate
 
                         cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
                         cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
@@ -393,24 +400,29 @@ while True:
                 #map opencv coordinates to stepper coordinates
                 #the input range are just test values for now based on coordinates of corners
                 #we have to add a calibration switch to tell where the actual limits are
-                ystepstriker = translate(int(centerGreen[1]),step2100y,step0y,0,2100) #striker's current y coordinate
+                ystepstriker = translate(int(centerGreen[1]),step0y,step2100y,0,2100) #striker's current y coordinate
                 #change float to int, change int to string, append newline character, change string from unicode to 'byte'
-                ystepstriker = str.encode(str(int(ystepstriker)) + "\r")
+                ystepstriker = str.encode(str(int(-ystepstriker)) + "\r")
                 #append a bunch of values to a queue and check if they're all the same
                 interceptQ.append(int(ysteppuck))
                 #if values in the queue are the same, the puck isn't currently moving towards the striker end of the table, and the striker will return to the middle of the table
                 if checkEqual(interceptQ):
-                    ysteppuck = str.encode(str(1050) + "\n")
+                    ysteppuck = str.encode(str(-1050) + "\n")
                 #the puck is moving towards the striker, and output the intercept coordinate
                 else:
-                    ysteppuck = str.encode(str(int(ysteppuck)) + "\n")
+                    ysteppuck = str.encode(str(int(-ysteppuck)) + "\n")
                 #combine the data to send it to the arduino
                 data = ystepstriker + ysteppuck
+                '''
+                SOMETIMES IT HAS NEGATIVE VALUES, WHICH IT SHOULDN't. NEED TO FIGURE THAT OUT
+                '''
+                #print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
                 #if the coordinates are not negative
-                if (int(ysteppuck) > 0) and (int(ystepstriker) > 0):
+                if (int(ysteppuck) < 0) and (int(ystepstriker) < 0):
                     print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
-                    #ser.write(data) #write serial data
-            except:
+                    ser.write(data) #write serial data
+            except Exception as e:
+                print(e)
                 pass
 
 
