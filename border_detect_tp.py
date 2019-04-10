@@ -28,6 +28,7 @@ def magnitude(vector):
 def norm(vector):
     return np.array(vector)/magnitude(np.array(vector))
 
+
 def lineRayIntersectionPoint(rayOrigin, rayDirection, point1, point2):
     # Convert to numpy arrays
     rayOrigin = np.array(rayOrigin, dtype=np.float)
@@ -71,14 +72,22 @@ def translate(value, leftMin, leftMax, rightMin, rightMax):
 # http://stackoverflow.com/q/3844948/
 def checkEqual(lst):
     return not lst or lst.count(lst[0]) == len(lst)
-
+#Takes a que and compares the min and max items to see if puck is moving
+def isMoving(queue):
+    maxi = max(queue)
+    mini = min(queue)
+    ismoving = maxi[0] - mini[0]
+    if ismoving > 2: #threshold of 2
+        return True
+    else:
+         return False
 #start serial connection with arduino
-ser = serial.Serial('/dev/cu.usbmodem4513840',9600)
+ser = serial.Serial('/dev/cu.usbmodem14101',9600)
 
 
 #(step2100y, step0y) = calibrate(ser)
-step0y = 123
-step2100y = 376
+step0y = 138
+step2100y = 366
 
 
 print("step0y: ", step0y, "step2100y: ", step2100y, "\n")
@@ -97,13 +106,24 @@ args = vars(ap.parse_args())
 # list of tracked points
 greenDuctLower = (47, 73, 0) #lower color range
 greenDuctUpper = (70, 190, 255) #upper boundary for color
+strikerLower = (3,167,121) #orange color
+strikerUpper = (11,255,255) #orange color
 puckLower = (163, 64, 84) #lower boundary of color range of puck (fuschia)
 puckUpper = (172, 225, 255) #upper bound for puck color range
+'''
+switch orange and red color names to be accurate
+'''
+orangeLower = (0,219,113)
+orangeUpper = (8,255,255)
+blueLower = (96,122,76)
+blueUpper = (106,191,131)
+purpleLower = (120,126,0)
+purpleUpper = (133,255,255)
 pts = deque(maxlen=args["buffer"])
 borderpts = []
 minX = maxX = minY = maxY = 0
-trajQ = deque(maxlen=4) #queue to store center coordinates to extrapolate trajectory line
-interceptQ = deque(maxlen=5) #queue to store predicted interctepts, used to control jitter
+trajQ = deque(maxlen=3) #queue to store center coordinates to extrapolate trajectory line
+crossbarQ = deque(maxlen=2) #queue to store crossbar points
 topLeft = btmLeft = topRight = btmRight = (0,0)
 
 
@@ -113,6 +133,7 @@ vs = VideoStream(src=0).start()
 timeCount = timeStart = timeStop = elapsedTime = fps = 0
 pt0 = pt1 = pt2 = pt3 = 0
 ysteppuck = ystepstriker = None
+crossbarIntersect = 0
 
 # get the position of the four outside corners to define outside boundary of air hockey table
 while True:
@@ -172,10 +193,10 @@ while True:
 
         #display border outline defined by points
         #this will be the border outline of the hockey table
-        borderpts.sort()
+        borderpts.sort() #sorts by the x
 
         leftpts = [borderpts[0],borderpts[1]]
-        leftpts = sorted(leftpts, key= lambda k:k[1])
+        leftpts = sorted(leftpts, key= lambda k:k[1]) #sort left points by the y
         pt0 = leftpts[0] #top left coordinate
         pt1 = leftpts[1] #bottom left coordinate
 
@@ -254,30 +275,41 @@ while True:
     mask = cv2.erode(mask, None, iterations=2)
     mask = cv2.dilate(mask, None, iterations=2)
 
-    # construct a mask for the color "green", then perform
-    maskGreen = cv2.inRange(hsv, greenDuctLower, greenDuctUpper)
-    maskGreen = cv2.erode(maskGreen, None, iterations=2)
-    maskGreen = cv2.dilate(maskGreen, None, iterations=2)
+    # construct a mask for the color "purple", then perform
+    maskStriker = cv2.inRange(hsv, purpleLower, purpleUpper)
+    maskStriker = cv2.erode(maskStriker, None, iterations=2)
+    maskStriker = cv2.dilate(maskStriker, None, iterations=2)
+
+    # construct a mask for the color "orange", then perform
+    maskCrossbar = cv2.inRange(hsv, orangeLower, orangeUpper)
+    maskCrossbar = cv2.erode(maskCrossbar, None, iterations=2)
+    maskCrossbar = cv2.dilate(maskCrossbar, None, iterations=2)
 
     # find contours in the puck mask and initialize the current
-    # (x, y) center of the ball
+    # (x, y) center of the puck
     cnts = cv2.findContours(mask.copy(), cv2.RETR_EXTERNAL,
     	cv2.CHAIN_APPROX_SIMPLE)
 
-    # find contours in the puck mask and initialize the current
-    # (x, y) center of the ball
-    cntsGreen = cv2.findContours(maskGreen.copy(), cv2.RETR_EXTERNAL,
+    # find contours in the striker mask and initialize the current
+    # (x, y) center of the striker
+    cntsStriker = cv2.findContours(maskStriker.copy(), cv2.RETR_EXTERNAL,
+    	cv2.CHAIN_APPROX_SIMPLE)
+
+    # find contours in the crossbar mask and initialize the current
+    # (x, y) center of the crossbar
+    cntsCrossbar = cv2.findContours(maskCrossbar.copy(), cv2.RETR_EXTERNAL,
     	cv2.CHAIN_APPROX_SIMPLE)
 
     #this line to is to make this code work with multiple versions of opencv
     cnts = imutils.grab_contours(cnts)
-    cntsGreen = imutils.grab_contours(cntsGreen)
+    cntsStriker = imutils.grab_contours(cntsStriker)
+    cntsCrossbar = imutils.grab_contours(cntsCrossbar)
     center = None
-    centerGreen = None
+    centerStriker = None
+    centerCrossbar = None
 
     #display border outline defined by points
     #this will be the border outline of the hockey table
-
     borderpts.sort()
     cv2.line(frame, borderpts[0], borderpts[1], (0,0,255), 2)
     cv2.line(frame, borderpts[2], borderpts[3], (0,0,255), 2)
@@ -291,29 +323,56 @@ while True:
     cv2.putText(frame,str(pt2),(pt2[0]-150,pt2[1]),cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
     cv2.putText(frame,str(pt3),(pt3[0]-150,pt3[1]),cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
-
-
     #display frames per second on screen
     cv2.putText(frame,"FPS: %.0f"%fps,(450,410),cv2.FONT_HERSHEY_PLAIN,2.0,(0,0,0))
 
 
-    #draw enclosing circle around green puck striker
-    if len(cntsGreen) > 0:
-        #display the circle and centroid
-        cGreen = max(cntsGreen, key=cv2.contourArea)
-        ((xGreen, yGreen), radiusGreen) = cv2.minEnclosingCircle(cGreen)
-        MGreen = cv2.moments(cGreen)
-        centerGreen = (int(MGreen["m10"] / MGreen["m00"]), int(MGreen["m01"] / MGreen["m00"]))
 
-        # only proceed if the green radius meets a minimum size
-        if radiusGreen > 10:
+    #track crossbar with
+    if len(cntsCrossbar) > 0:
+
+        cntsCrossbar = sorted(cntsCrossbar, key=cv2.contourArea)
+
+        i = 0
+        #diplay centroid of largest 4 contours
+        for c in cntsCrossbar:
+            #break loop after four iterations
+            if i == 2:
+                break
+            i = i + 1
+            #display the circle and centroid
+            ((xCrossbar, yCrossbar), radiusCrossbar) = cv2.minEnclosingCircle(c)
+            MCrossbar = cv2.moments(c)
+            centerCrossbar = (int(MCrossbar["m10"] / MCrossbar["m00"]), int(MCrossbar["m01"] / MCrossbar["m00"]))
+
+            crossbarQ.appendleft(centerCrossbar)
+
+            # only proceed if the green radius meets a minimum size
+            #if radiusCrossbar > 10:
             # draw the circle and centroid on the frame,
             # then update the list of tracked points
-            cv2.circle(frame, (int(xGreen), int(yGreen)), int(radiusGreen),
-                (0, 255, 255), 2)
-            cv2.circle(frame, centerGreen, 5, (0, 0, 255), -1)
-            cv2.putText(frame,str(centerGreen),centerGreen,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
+            cv2.circle(frame, centerCrossbar, 5, (0, 0, 255), -1)
+            cv2.putText(frame,str(centerCrossbar),centerCrossbar,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
+            if len(crossbarQ) > 1:
+                cv2.line(frame, crossbarQ[0], crossbarQ[1], (0,0,255), 2)
+
+    #draw enclosing circle around green puck striker
+    if len(cntsStriker) > 0:
+        #display the circle and centroid
+        cStriker = max(cntsStriker, key=cv2.contourArea)
+        ((xStriker, yStriker), radiusStriker) = cv2.minEnclosingCircle(cStriker)
+        MStriker = cv2.moments(cStriker)
+        centerStriker = (int(MStriker["m10"] / MStriker["m00"]), int(MStriker["m01"] / MStriker["m00"]))
+
+        # only proceed if the green radius meets a minimum size
+        if radiusStriker > 10:
+            # draw the circle and centroid on the frame,
+            # then update the list of tracked points
+            cv2.circle(frame, (int(xStriker), int(yStriker)), int(radiusStriker),
+                (0, 255, 255), 2)
+            cv2.circle(frame, centerStriker, 5, (0, 0, 255), -1)
+            cv2.putText(frame,str(centerStriker),centerStriker,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
     # only proceed if at least one fuschia contour was found
     if len(cnts) > 0:
@@ -343,7 +402,7 @@ while True:
 
         #if there are two frames in the queue,
         #display a line extrapolating the centroids in two consecutive frames
-        if len(trajQ) > 3:
+        if len(trajQ) > 2:
             x1 = trajQ[0][0]
             y1 = trajQ[0][1]
             x2 = trajQ[2][0]
@@ -351,8 +410,11 @@ while True:
             line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2))
             theta = math.atan2((y1-y2),(x1-x2))
 
+            #seeing if puck is moving
+            if isMoving(trajQ) == False:
+                ysteppuck = 1050
             #if the object is moving towards one end of the hockey table
-            if x2 < x1:
+            elif x2 < x1:
 
                 #loop until the predicted puck trajectory intersects the baseline
                 while True:
@@ -366,10 +428,30 @@ while True:
                         #map opencv coordinates to stepper coordinates
                         #the input range are just test values for now based on coordinates of corners
                         #we have to add a calibration switch to tell where the actual limits are
-                        ysteppuck = translate(int(y3),step0y,step2100y, 0,2100) #puck's predicted y coordinate
+                        if int(y3) < step0y:
+                            ysteppuck = 0
+                        elif int(y3) > step2100y:
+                            ysteppuck = 2100
+                        else:
+                            ysteppuck = translate(int(y3),step0y,step2100y, 0,2100) #puck's predicted y coordinate
 
+                        #print trajectory of intercept point
                         cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
                         cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
+
+                        '''
+                        possible issue with missing crossbar line to fix
+                        '''
+                        #calculate intersection of trajectory with crossbar
+                        crossbarIntersect = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),crossbarQ[0],crossbarQ[1])
+
+                        try:
+                            cv2.circle(frame, (int(crossbarIntersect[0][0]),int(crossbarIntersect[0][1])), 8, (0, 0, 255), -1)
+                        except:
+                            '''
+                            maybe use an old value for crossbarIntersect when an indexOutOfBounds exception is thrown
+                            '''
+                            pass
 
                         break
 
@@ -396,35 +478,27 @@ while True:
                                 (x1,y1) = (x3,y3)
                                 theta = -theta
 
+            else:
+                ysteppuck = 1050
+
+
+
             try:
                 #map opencv coordinates to stepper coordinates
                 #the input range are just test values for now based on coordinates of corners
                 #we have to add a calibration switch to tell where the actual limits are
-                ystepstriker = translate(int(centerGreen[1]),step0y,step2100y,0,2100) #striker's current y coordinate
+                ystepstriker = translate(int(centerStriker[1]),step0y,step2100y,0,2100) #striker's current y coordinate
                 #change float to int, change int to string, append newline character, change string from unicode to 'byte'
-                ystepstriker = str.encode(str(int(-ystepstriker)) + "\r")
-                #append a bunch of values to a queue and check if they're all the same
-                interceptQ.append(int(ysteppuck))
-                #if values in the queue are the same, the puck isn't currently moving towards the striker end of the table, and the striker will return to the middle of the table
-                if checkEqual(interceptQ):
-                    ysteppuck = str.encode(str(-1050) + "\n")
-                #the puck is moving towards the striker, and output the intercept coordinate
-                else:
-                    ysteppuck = str.encode(str(int(-ysteppuck)) + "\n")
+                ystepstriker = str.encode(str(-int(ystepstriker)) + "\r")
+                #encode puck intercept position
+                ysteppuck = str.encode(str(-int(ysteppuck)) + "\n")
                 #combine the data to send it to the arduino
                 data = ystepstriker + ysteppuck
-                '''
-                SOMETIMES IT HAS NEGATIVE VALUES, WHICH IT SHOULDN't. NEED TO FIGURE THAT OUT
-                '''
-                #print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
-                #if the coordinates are not negative
-                if (int(ysteppuck) < 0) and (int(ystepstriker) < 0):
-                    print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
-                    ser.write(data) #write serial data
+                print("y Intercept: ", int(ysteppuck), "striker pos: ", int(ystepstriker))
+                ser.write(data) #write serial data
             except Exception as e:
                 print(e)
                 pass
-
 
 
     # show the frame to our screen
