@@ -110,13 +110,8 @@ strikerLower = (3,167,121) #orange color
 strikerUpper = (11,255,255) #orange color
 puckLower = (163, 64, 84) #lower boundary of color range of puck (fuschia)
 puckUpper = (172, 225, 255) #upper bound for puck color range
-'''
-switch orange and red color names to be accurate
-'''
 orangeLower = (0,219,113)
 orangeUpper = (8,255,255)
-blueLower = (96,122,76)
-blueUpper = (106,191,131)
 purpleLower = (120,126,0)
 purpleUpper = (133,255,255)
 pts = deque(maxlen=args["buffer"])
@@ -423,17 +418,8 @@ while True:
                     #if the the puck is headed toward the baseline
                     #draw a line from the current centroid to the baseline, and break from the loop
                     if intersectPoint != []:
+                        #intersect with baseline
                         (x3,y3) = intersectPoint[0]
-
-                        #map opencv coordinates to stepper coordinates
-                        #the input range are just test values for now based on coordinates of corners
-                        #we have to add a calibration switch to tell where the actual limits are
-                        if int(y3) < step0y:
-                            ysteppuck = 0
-                        elif int(y3) > step2100y:
-                            ysteppuck = 2100
-                        else:
-                            ysteppuck = translate(int(y3),step0y,step2100y, 0,2100) #puck's predicted y coordinate
 
                         #print trajectory of intercept point
                         cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
@@ -447,11 +433,21 @@ while True:
 
                         try:
                             cv2.circle(frame, (int(crossbarIntersect[0][0]),int(crossbarIntersect[0][1])), 8, (0, 0, 255), -1)
+
+                            #map opencv coordinates to stepper coordinates
+                            #the input range are just test values for now based on coordinates of corners
+                            if 200 < int(y3) < 300:
+                                ysteppuck = translate(int(crossbarIntersect[0][1]),step0y,step2100y, 0,2100) #pucks predicted intercept with crossbar
+                            else:
+                                ysteppuck = 1050
+
                         except:
                             '''
                             maybe use an old value for crossbarIntersect when an indexOutOfBounds exception is thrown
                             '''
                             pass
+
+
 
                         break
 
