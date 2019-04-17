@@ -1,22 +1,24 @@
 #include <AccelStepper.h>
-AccelStepper stepper(1,4,3); 
-String inputString = "";         //a String to hold incoming data
-String stkrCoord = "";
-String pckCoord = "";
+AccelStepper stepper1(1,4,3); 
+AccelStepper stepper2(1,6,5);
 
-String printString = ""; //string to print back to serial terminal
+int fbMarginSteps = 100;
 
-int goalPos = 0; //middle position on air hockey table (step-wise)
+String inputString = ""; //a String to hold incoming data
+String stepper1Coord = "";
+String stepper2Coord = "";
+String fbStepper1Coord = "";
+String fbStepper2Coord = "";
+
+int step1Coord = 0;
+int step2Coord = 0;
+int fbStep1Coord = 0;
+int fbStep2Coord = 0;
+
 bool stringComplete = false;  //whether the string is complete
 bool retRead        = false;  //whether '\r' character has been read
-bool calibration    = false;  //whether '?' has been read; true if ? exists
-
-int currPos = 1050; //current position of the striker
-int currDir = 0; //used to keep track of current direction, doesn't actually change direction of stepper motors
-
-int stepSpeed = 400;
-
-
+bool tabRead        = false;  //whether '\t' character has been read
+bool spaceRead      = false;  //whether ' ' character has been read
 
 void setup() {
   // initialize serial:
@@ -24,51 +26,53 @@ void setup() {
   // reserve 200 bytes for the inputString:
   inputString.reserve(200);
 
-  // Sets the two pins as Outputs
-  stepper.setMaxSpeed(2000.0);
-  stepper.setAcceleration(20000.0);
+  stepper1.setMaxSpeed(3000.0);
+  stepper1.setAcceleration(20000.0);
+  stepper2.setMaxSpeed(3000.0);
+  stepper2.setAcceleration(20000.0);
   
 }
 
-////////////
-//  MAIN  //
-////////////
-
 void loop() {
-  //new code starts here
-  /*
- //check that striker is where it should be
-  long stkrPosA = stepper.currentPosition(); //get where arduino thinks striker is
-  //Serial.print("ArduinoPos: ");
-  //Serial.println(stkrPosA);
-  long stkrPosC = long(pckCoord.toInt());  //get where camera thinks striker is
-  //Serial.print("CamPos: ");
-  //Serial.println(stkrPosC);
-  //make tolerances from this
-  int lowTol = stkrPosC - 40; //lower tolerance
-  int uprTol = stkrPosC + 40; //upper tolerance     
-  //the following if statement makes things slow
-  //if ((stkrPosA < lowTol) || (stkrPosA > uprTol)) //check that we're within tolerances
-    //stepper.setCurrentPosition(long(pckCoord.toInt()));
-*/
-    //new code ends here
-  
   // print the string when a newline arrives:
   if (stringComplete) {
-    goalPos = stkrCoord.toInt();
-    //currPos = pckCoord.toInt();
+    //convert strings to integers
+    step1Coord = stepper1Coord.toInt();
+    step2Coord = stepper2Coord.toInt();
+    fbStep1Coord = fbStepper1Coord.toInt();
+    fbStep2Coord = fbStepper2Coord.toInt();
 
     //reset strings and flags
     inputString = "";
-    stkrCoord = "";
-    pckCoord = "";
+    stepper2Coord = "";
+    stepper1Coord = "";
+    fbStepper2Coord = "";
+    fbStepper1Coord = "";
     stringComplete = false;
     retRead = false;
+    tabRead = false;
+    spaceRead = false;
   }
 
-  //move to a position
-   stepper.moveTo(goalPos);
-   stepper.run();
+   //feeback loop
+   
+   if ((stepper1.currentPosition() < fbStep1Coord - fbMarginSteps) ||
+       (stepper1.currentPosition() > fbStep1Coord + fbMarginSteps) ||
+       (stepper2.currentPosition() < fbStep2Coord - fbMarginSteps) ||
+       (stepper2.currentPosition() > fbStep2Coord + fbMarginSteps))
+       {
+          stepper1.setCurrentPosition(fbStep1Coord);
+          stepper2.setCurrentPosition(fbStep2Coord);
+       }
+     
+
+       
+
+   //move to a position
+   stepper1.moveTo(step1Coord);
+   stepper1.run();
+   stepper2.moveTo(step2Coord);
+   stepper2.run();
 }
 
 /*
@@ -80,25 +84,40 @@ void serialEvent() {
   while (Serial.available()) {
     // get the new byte:
     char inChar = (char)Serial.read();
+
+     //if the incoming character is a carriage return, set a flag so the incoming character
+    if (inChar == '\r'){
+      retRead = true; 
+    }
+
+    //if the incoming character is a carriage return, set a flag so the incoming character
+    if (inChar == '\t'){
+      tabRead = true; 
+    }
+
+    //if the incoming character is a carriage return, set a flag so the incoming character
+    if (inChar == ' '){
+      spaceRead = true; 
+    }
     
     // if the incoming character is a newline, set a flag so the main loop can
     // do something about it:
     if (inChar == '\n') {
       stringComplete = true;
     }
-
-    //if the incoming character is a carriage return, set a flag so the incoming character
-    //is appended to the correct substring (either stkrCoord or pckCoord)
-    if (inChar == '\r'){
-      retRead = true; //return char is read
-    }
     
     // add it to the inputString:
     inputString += inChar;
-    if(retRead){
-      stkrCoord += inChar; //stkrCoord = where to move to
+
+    
+    if(retRead && !tabRead && !spaceRead){
+      stepper2Coord += inChar;
+    } else if(retRead && tabRead && !spaceRead) {
+      fbStepper1Coord += inChar; 
+    } else if(retRead && tabRead && spaceRead){
+      fbStepper2Coord += inChar;
     } else {
-      pckCoord += inChar; //pckCoord = striker's current position
+      stepper1Coord += inChar;
     }
   }
 }
