@@ -8,6 +8,8 @@ import imutils
 import time
 import math
 import serial
+import sys #for command line switch arguments
+#include "videoio.hpp"
 from border_calibration import calibrate
 #import border_calibration as bcal
 
@@ -82,8 +84,47 @@ def isMoving(queue):
         return True
     else:
          return False
+		 
+#puckSpeed determines the speed at which a puck is traveling
+# recieves: 3x2 matrix queue with puck locations (trajQ), integer (frames per second)
+# returns: float (puck speed)
+def puckSpeed(queue, FPS):
+	x1 = queue[0][0] #most recent x-coordinate
+	y1 = queue[0][1] #most recent y-coordinate
+	x2 = queue[1][0] #previous x-coord
+	y2 = queue[1][1] #previous y-coord
+	#determine magnitude of line (distance traveled in 2 frames)
+	mag = math.sqrt(((y2-y1)**2)+((x2-x1)**2))
+	#velocity = (frames/second)*(maginitude/frames)
+	vel = FPS*(mag/2)
+	return vel
+
+# dicate what operating system is being used (Mac or Windows) by using the command line switch "-s" or "--sys"
+# construct the argument parser to look at command line arguments
+ap = argparse.ArgumentParser()
+ap.add_argument("-s", "--sys", type=str, default="",)
+args = vars(ap.parse_args())
+
+if args.get("sys", True):
+	ardPort = ' '; #make the arduino port
+	sysSrc = -1; #the port from which the Logitech camera talks with the computer
+	if (sys.argv[2][0] == "m") or (sys.argv[2][0] == "M"): #if using a Mac
+		print("Mac detected")
+		ardPort = '/dev/cu.usbmodem14101'
+		sysSrc = 0
+	elif (sys.argv[2][0] == 'w') or (sys.argv[2][0] == 'W'): # else if using Windows
+		print("Windows detected")
+		ardPort = 'COM3'
+		sysSrc = 1
+	else:
+		print("error: system not recognized; please specify Mac or Windows")
+		exit(1)
+else:
+	print("error: no system declared; please use switch '-s' or '--sys' to declare OS")
+	exit(1)
+
 #start serial connection with arduino
-ser = serial.Serial('/dev/cu.usbmodem14101',9600)
+ser = serial.Serial(ardPort,9600)
 
 
 #(strikerMaxY, strikerMinY) = calibrate(ser)
@@ -114,7 +155,9 @@ topLeft = btmLeft = topRight = btmRight = (0,0)
 
 
 #grab the reference to the webcam
-vs = VideoStream(src=0).start()
+vs = VideoStream(src=sysSrc).start()
+#vs.set(cv2.CAP_PROP_FRAME_WIDTH, 960)
+#vs.set(cv2.CAP_PROP_FRAME_HEIGHT, 1280)
 
 timeCount = timeStart = timeStop = elapsedTime = fps = 0
 pt0 = pt1 = pt2 = pt3 = 0
@@ -129,7 +172,8 @@ while True:
     frame = vs.read()
 
     # resize the frame, blur it, and convert it to the HSV
-    # color space
+    
+	# color space
     frame = imutils.resize(frame, width=600)
     blurred = cv2.GaussianBlur(frame, (11, 11), 0)
     hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
@@ -347,7 +391,7 @@ while True:
             #if radiusCrossbar > 10:
             # draw the circle and centroid on the frame,
             # then update the list of tracked points
-            cv2.circle(frame, centerCrossbar, 5, (0, 0, 255), -1)
+            cv2.circle(frame, centerCrossbar, 2, (0, 0, 255), -1)
             cv2.putText(frame,str(centerCrossbar),centerCrossbar,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
             if len(crossbarQ) > 1:
@@ -378,6 +422,7 @@ while True:
         ((x, y), radius) = cv2.minEnclosingCircle(c)
         M = cv2.moments(c)
         center = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
+        centerSpeedText = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]) + 15)
 
         #append the centroid for the frame to the queue
         trajQ.appendleft(center)
@@ -398,24 +443,29 @@ while True:
             y2 = trajQ[2][1]
             line_len = math.sqrt(math.pow((x1-x2),2)+pow((y1-y2),2)) #this is the velocity of the puck
             theta = math.atan2((y1-y2),(x1-x2))
+            cv2.putText(frame,"Speed: %.0f"%puckSpeed(trajQ,fps),centerSpeedText,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,0))
 
-            #seeing if puck is moving
+            #check if puck is moving
+			#if the puck isn't moving
             if isMoving(trajQ) == False:
-                #is the puck within striking range
+                #is the puck within striking range?
                 if ((strikerMinX + 15) < x1 < (strikerMaxX - 15)) and ((strikerMinY + 15) < y1 < (strikerMaxY - 15)):
-                    '''
-                    if not ((y1 - 5) <= centerStriker[1] <= (y1 + 5)) :
+                    #print("PUCK IN RANGE")
+                    
+                    if not ((y1 - 5) <= centerStriker[1] <= (y1 + 5)) : #move in y-dir
                         #translates opencv x,y coordinates to step,step coordinates
                         #move striker to puck's y value, striker's own x value
-                        stepper1Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+                        stepper1Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
+						#translate current y pos to motor steps, do math with current location of striker to know how far to move
                         stepper2Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
-                    else:
+                        #print("Move motor 1: " + str(stepper1Coord) + " move motor2: " + str(stepper2Coord))
+                    else: #move in x-dir
                         #translates opencv x,y coordinates to step,step coordinates
                         stepper1Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate((x1 - 10),strikerMinX,strikerMaxX, 0,2050))
                         stepper2Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((x1 - 10),strikerMinX,strikerMaxX, 0,2050))
-                    '''
-                    stepper1Coord = stepper2Coord = -1050
+                        #print("Move motor 1: " + str(stepper1Coord) + " move motor2: " + str(stepper2Coord))
 
+                    #stepper1Coord = stepper2Coord = -1050
                 #if not within striking range, return to defensive position
                 else:
                     stepper1Coord = stepper2Coord = -1050
@@ -426,75 +476,95 @@ while True:
                 if x2 < x1:
                     #loop until the predicted puck trajectory intersects the baseline
                     while True:
-
                         #if the intersect queue contains items that are all the same, that means it is stuck in this while loop, so we break from it
                         intersectQ.appendleft((x1,y1))
                         if len(intersectQ) > 1:
                             if checkEqual(intersectQ):
                                 break
-
-                        #get intersection of current position and direction with the robot goal line (baseline)
-                        intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topRight,btmRight)
-
-
-                        #if the the puck is headed toward the baseline
-                        #draw a line from the current centroid to the baseline, and break from the loop
-                        if intersectPoint != []:
-                            #intersect with baseline
-                            (x3,y3) = intersectPoint[0]
-
-                            #print trajectory of intercept point
-                            cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
-                            cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
-
-                            '''
-                            possible issue with missing crossbar line to fix
-                            '''
-                            #calculate intersection of trajectory with crossbar
-                            crossbarIntersect = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),crossbarQ[0],crossbarQ[1])
-
-                            try:
-                                cv2.circle(frame, (int(crossbarIntersect[0][0]),int(crossbarIntersect[0][1])), 8, (0, 0, 255), -1)
-
-                                #map opencv coordinates to stepper coordinates
-                                #the input range are just test values for now based on coordinates of corners
-                                if 200 < int(y3) < 300:
-                                    stepper1Coord = stepper2Coord = - translate(int(crossbarIntersect[0][1]),strikerMinY,strikerMaxY, 0,2100) #pucks predicted intercept with crossbar
-
-                                else:
-                                    stepper1Coord = stepper2Coord = - 1050
-
-                            except:
-                                '''
-                                maybe use an old value for crossbarIntersect when an indexOutOfBounds exception is thrown
-                                '''
-                                pass
-
-                            break
-
-                        #if the puck headed towards one of the sidelines
+#------------------------------------ new code starts here
+                        #if the puck is within striking range AND moving slowly !!!!!!NOTE: ( 22 <= puckSpeed <= 80; could have lower tolerance because if just sitting, puck can register at 22 coord/sec)
+                        if (((strikerMinX + 15) < x1 < (strikerMaxX - 15)) and ((strikerMinY + 15) < y1 < (strikerMaxY - 15))) and (puckSpeed(trajQ,fps) <= 200): #precursory research shows that robot can move puck at ~ 100 coord/sec
+                            print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+							#determine a point which is the same distance away from the most recent puck coordinate as the last puck coordinate (so the magnitude calculated between the current position and last position will be the same as the magnitude calculated between the current position and the striker intercept)
+                            intcptX = (x1*2)-x2 #new x-coord: x1+(x1-x2)
+                            intcptY = (y1*2)-y2 #new y-coord: y1+(y1+y2)
+                            if not ((intcptY - 5) <= centerStriker[1] <= (intcptY + 5)) : #move in y-dir
+                                stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
+						        #translate current y pos to motor steps, do math with current location of striker to know how far to move
+                                stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+                            else: #move in x-dir
+                                #translates opencv x,y coordinates to step,step coordinates
+                                stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
+                                stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
+						
+                        #    stepper1Coord = - translate(y1+(y1-y2),strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
+						#    #translate current y pos to motor steps, do math with current location of striker to know how far to move
+                        #    stepper2Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
                         else:
-                            #if theta is negative, its heading towards the top sideline
-                            if theta < 0:
-                                print("theta < 0")
-                                intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topLeft,topRight)
-                                if intersectPoint != []:
-                                    (x3,y3) = intersectPoint[0]
-                                    cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
-                                    #set the current position equal to the end of the line and flip the angle
-                                    (x1,y1) = (x3,y3)
-                                    theta = -theta
-                            #if theta is positive, its heading towards the bottom sideline
-                            else:
-                                print("theta > 0")
-                                intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),btmLeft,btmRight)
-                                if intersectPoint != []:
-                                    (x3,y3) = intersectPoint[0]
-                                    cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+#-----------------------------------
 
-                                    #set the current position equal to the end of the line and flip the angle
-                                    (x1,y1) = (x3,y3)
-                                    theta = -theta
+                            #get intersection of current position and direction with the robot goal line (baseline)
+                            intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topRight,btmRight)
+
+
+                            #if the the puck is headed toward the baseline
+                            #draw a line from the current centroid to the baseline, and break from the loop
+                            if intersectPoint != []:
+                                #intersect with baseline
+                                (x3,y3) = intersectPoint[0]
+
+                                #print trajectory of intercept point
+                                cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+                                cv2.circle(frame, (int(x3),int(y3)), 8, (0, 0, 255), -1)
+
+                                '''
+                                possible issue with missing crossbar line to fix
+                                '''
+                                #calculate intersection of trajectory with crossbar
+                                crossbarIntersect = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),crossbarQ[0],crossbarQ[1])
+
+                                try:
+                                    cv2.circle(frame, (int(crossbarIntersect[0][0]),int(crossbarIntersect[0][1])), 8, (0, 0, 255), -1)
+
+                                    #map opencv coordinates to stepper coordinates
+                                    #the input range are just test values for now based on coordinates of corners
+                                    if 200 < int(y3) < 300:
+                                        stepper1Coord = stepper2Coord = - translate(int(crossbarIntersect[0][1]),strikerMinY,strikerMaxY, 0,2100) #pucks predicted intercept with crossbar
+
+                                    else:
+                                        stepper1Coord = stepper2Coord = - 1050
+
+                                except:
+                                    '''
+                                    maybe use an old value for crossbarIntersect when an indexOutOfBounds exception is thrown
+                                    '''
+                                    pass
+
+                                break
+
+                            #if the puck headed towards one of the sidelines
+                            else:
+                                #if theta is negative, its heading towards the top sideline
+                                if theta < 0:
+                                    print("theta < 0")
+                                    intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topLeft,topRight)
+                                    if intersectPoint != []:
+                                        (x3,y3) = intersectPoint[0]
+                                        cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+                                        #set the current position equal to the end of the line and flip the angle
+                                        (x1,y1) = (x3,y3)
+                                        theta = -theta
+                                #if theta is positive, its heading towards the bottom sideline
+                                else:
+                                    print("theta > 0")
+                                    intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),btmLeft,btmRight)
+                                    if intersectPoint != []:
+                                        (x3,y3) = intersectPoint[0]
+                                        cv2.line(frame, (int(x1),int(y1)), (int(x3),int(y3)), (0,0,255), 2)
+
+                                        #set the current position equal to the end of the line and flip the angle
+                                        (x1,y1) = (x3,y3)
+                                        theta = -theta
 
                     #if the puck is moving away from the robot goal
                     else:
@@ -520,7 +590,7 @@ while True:
                 #combine the data to send it to the arduino
                 data = stepper1Coord + stepper2Coord + fbStepper1Coord + fbStepper2Coord
                 print("step1: ", int(stepper1Coord), "step2: ", int(stepper2Coord), "fbstep1: ", int(fbStepper1Coord), "fbstep2: ", int(fbStepper2Coord))
-                ser.write(data) #write serial data
+                ser.write(data) #send data to the arduino
             except Exception as e:
                 print(e)
                 pass
@@ -541,3 +611,5 @@ vs.stop()
 
 # close all windows
 cv2.destroyAllWindows()
+
+exit(0)
