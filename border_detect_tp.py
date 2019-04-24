@@ -85,7 +85,7 @@ def isMoving(queue):
     else:
          return False
 		 
-#puckSpeed determines the speed at which a puck is traveling
+# puckSpeed determines the speed at which a puck is traveling
 # recieves: 3x2 matrix queue with puck locations (trajQ), integer (frames per second)
 # returns: float (puck speed)
 def puckSpeed(queue, FPS):
@@ -98,6 +98,15 @@ def puckSpeed(queue, FPS):
 	#velocity = (frames/second)*(maginitude/frames)
 	vel = FPS*(mag/2)
 	return vel
+	
+# canReach returns TRUE if puck is within the robot's reach
+# receives: x,y coordinates for extremeties, x,y coordinates for point
+# returns: true/false
+def canReach(MinY, MaxY, MinX, MaxX, x, y):
+    if (((MinX + 15) < x < (MaxX - 15)) and ((MinY + 15) < y < (MaxY - 15))):
+        return True
+    else:
+        return False
 
 # dicate what operating system is being used (Mac or Windows) by using the command line switch "-s" or "--sys"
 # construct the argument parser to look at command line arguments
@@ -449,7 +458,7 @@ while True:
 			#if the puck isn't moving
             if isMoving(trajQ) == False:
                 #is the puck within striking range?
-                if ((strikerMinX + 15) < x1 < (strikerMaxX - 15)) and ((strikerMinY + 15) < y1 < (strikerMaxY - 15)):
+                if canReach(strikerMinY, strikerMaxY, strikerMinX, strikerMaxX, x1, y1):
                     #print("PUCK IN RANGE")
                     
                     if not ((y1 - 5) <= centerStriker[1] <= (y1 + 5)) : #move in y-dir
@@ -465,7 +474,6 @@ while True:
                         stepper2Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((x1 - 10),strikerMinX,strikerMaxX, 0,2050))
                         #print("Move motor 1: " + str(stepper1Coord) + " move motor2: " + str(stepper2Coord))
 
-                    #stepper1Coord = stepper2Coord = -1050
                 #if not within striking range, return to defensive position
                 else:
                     stepper1Coord = stepper2Coord = -1050
@@ -481,27 +489,26 @@ while True:
                         if len(intersectQ) > 1:
                             if checkEqual(intersectQ):
                                 break
-#------------------------------------ new code starts here
-                        #if the puck is within striking range AND moving slowly !!!!!!NOTE: ( 22 <= puckSpeed <= 80; could have lower tolerance because if just sitting, puck can register at 22 coord/sec)
-                        if (((strikerMinX + 15) < x1 < (strikerMaxX - 15)) and ((strikerMinY + 15) < y1 < (strikerMaxY - 15))) and (puckSpeed(trajQ,fps) <= 200): #precursory research shows that robot can move puck at ~ 100 coord/sec
+
+                        #if the puck is within striking range AND moving slowly  !!!!!NOTE: puck can register at 22 coord/sec while still
+                        if canReach(strikerMinY, strikerMaxY, strikerMinX, strikerMaxX, x1, y1) and (puckSpeed(trajQ,fps) <= 200): #precursory research shows that robot can move puck at ~ 100 coord/sec
                             print("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 							#determine a point which is the same distance away from the most recent puck coordinate as the last puck coordinate (so the magnitude calculated between the current position and last position will be the same as the magnitude calculated between the current position and the striker intercept)
                             intcptX = (x1*2)-x2 #new x-coord: x1+(x1-x2)
                             intcptY = (y1*2)-y2 #new y-coord: y1+(y1+y2)
-                            if not ((intcptY - 5) <= centerStriker[1] <= (intcptY + 5)) : #move in y-dir
-                                stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
-						        #translate current y pos to motor steps, do math with current location of striker to know how far to move
-                                stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
-                            else: #move in x-dir
-                                #translates opencv x,y coordinates to step,step coordinates
-                                stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
-                                stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
-						
-                        #    stepper1Coord = - translate(y1+(y1-y2),strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
-						#    #translate current y pos to motor steps, do math with current location of striker to know how far to move
-                        #    stepper2Coord = - translate(y1,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+                            #check that the intercept point is within table boundaries (as a whole) [can do this since we know the puck is moving towards us and was within our reach, so it will have to be on the robot's half of the table]
+                            if canReach(minY, maxY, minX, maxX, intcptX, intcptY): #should also factor in bounce here
+                                if not ((intcptY - 5) <= centerStriker[1] <= (intcptY + 5)) : #move in y-dir
+                                    stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050)) 
+						            #translate current y pos to motor steps, do math with current location of striker to know how far to move
+                                    stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+                                else: #move in x-dir
+                                    #translates opencv x,y coordinates to step,step coordinates
+                                    stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
+                                    stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
+                            else:
+                                stepper1Coord = stepper2Coord = -1050
                         else:
-#-----------------------------------
 
                             #get intersection of current position and direction with the robot goal line (baseline)
                             intersectPoint = lineRayIntersectionPoint((x1,y1),(math.cos(theta),math.sin(theta)),topRight,btmRight)
