@@ -424,7 +424,9 @@ while True:
             cv2.putText(frame,str(centerStriker),centerStriker,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,255))
 
     # only proceed if at least one fuschia (puck) contour was found
-    if len(cnts) > 0:
+    if len(cnts) == 0:
+        stepper1Coord = stepper2Coord = -1050
+    elif len(cnts) > 0:
 
         #display the circle and centroid
         c = max(cnts, key=cv2.contourArea)
@@ -454,7 +456,7 @@ while True:
             theta = math.atan2((y1-y2),(x1-x2))
             cv2.putText(frame,"Speed: %.0f"%puckSpeed(trajQ,fps),centerSpeedText,cv2.FONT_HERSHEY_PLAIN,1.0,(255,255,0))
 
-            #check if puck is moving
+        #check if puck is moving
 			#if the puck isn't moving
             if isMoving(trajQ) == False:
                 #is the puck within striking range?
@@ -506,8 +508,8 @@ while True:
                                     #translates opencv x,y coordinates to step,step coordinates
                                     stepper1Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) + (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
                                     stepper2Coord = - translate(intcptY,strikerMinY,strikerMaxY, 0,2100) - (2050 - translate((intcptX - 10),strikerMinX,strikerMaxX, 0,2050))
-                            else:
-                                stepper1Coord = stepper2Coord = -1050
+                            #else:
+                            #    stepper1Coord = stepper2Coord = -1050
                         else:
 
                             #get intersection of current position and direction with the robot goal line (baseline)
@@ -579,28 +581,28 @@ while True:
 
 
 
-            try:
-                #translates opencv x,y coordinates to step,step coordinates
-                fbStepper1Coord = - translate(centerStriker[1],strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
-                fbStepper2Coord = - translate(centerStriker[1],strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+    try:
+        #translates opencv x,y coordinates to step,step coordinates
+        fbStepper1Coord = - translate(centerStriker[1],strikerMinY,strikerMaxY, 0,2100) + (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
+        fbStepper2Coord = - translate(centerStriker[1],strikerMinY,strikerMaxY, 0,2100) - (2050 - translate(centerStriker[0],strikerMinX,strikerMaxX, 0,2050))
 
-                #print(centerStriker)
+        #print(centerStriker)
 
-                #encode puck intercept position
-                stepper1Coord = str.encode(str(int(stepper1Coord)) + "\r")
-                stepper2Coord = str.encode(str(int(stepper2Coord)) + "\t")
+        #encode puck intercept position
+        stepper1Coord = str.encode(str(int(stepper1Coord)) + "\r")
+        stepper2Coord = str.encode(str(int(stepper2Coord)) + "\t")
 
-                #encode striker position for feedback loop
-                fbStepper1Coord = str.encode(str(int(fbStepper1Coord)) + " ")
-                fbStepper2Coord = str.encode(str(int(fbStepper2Coord)) + "\n")
+        #encode striker position for feedback loop
+        fbStepper1Coord = str.encode(str(int(fbStepper1Coord)) + " ")
+        fbStepper2Coord = str.encode(str(int(fbStepper2Coord)) + "\n")
 
-                #combine the data to send it to the arduino
-                data = stepper1Coord + stepper2Coord + fbStepper1Coord + fbStepper2Coord
-                print("step1: ", int(stepper1Coord), "step2: ", int(stepper2Coord), "fbstep1: ", int(fbStepper1Coord), "fbstep2: ", int(fbStepper2Coord))
-                ser.write(data) #send data to the arduino
-            except Exception as e:
-                print(e)
-                pass
+        #combine the data to send it to the arduino
+        data = stepper1Coord + stepper2Coord + fbStepper1Coord + fbStepper2Coord
+        print("step1: ", int(stepper1Coord), "step2: ", int(stepper2Coord), "fbstep1: ", int(fbStepper1Coord), "fbstep2: ", int(fbStepper2Coord))
+        ser.write(data) #send data to the arduino
+    except Exception as e:
+        print(e)
+        pass
 
 
     # show the frame to our screen
